@@ -20,7 +20,15 @@ workspace "Samples"
 function sample(projectName, sourceFolder)
     project(projectName)
 
-    includedirs { "source/common/include" }
+    buildoptions {"-D_GLIBCXX_USE_CXX11_ABI=0 -Wno-deprecated-declarations -Wno-deprecated -Wno-unused-variable -Wno-error=switch -Wno-error=shadow -Wno-error=sign-compare -Wno-error=unused-parameter -Wno-error=unused-function"}
+
+    includedirs {
+        "source/common/include",
+    }
+    externalincludedirs {
+        "/home/jennuine/nvidia_hackathon/gzOmniWs/install/include",
+        "/home/jennuine/nvidia_hackathon/gzOmniWs/install/include/**"
+    }
 
     -- setup all paths, links, and carb dependencies to enable omni_connect_core
     connect_build.use_omni_client()
@@ -53,7 +61,8 @@ function sample(projectName, sourceFolder)
             debugenvs "CARB_APP_PATH=$(ProjectDir)..\\..\\..\\_build\\windows-x86_64\\release"
         filter {}
     filter { "system:linux" }
-        links { "pthread", "stdc++fs" }
+        libdirs { "/home/jennuine/nvidia_hackathon/gzOmniWs/install/lib" }
+        links { "pthread", "stdc++fs", "protobuf", "protoc", "gz-transport13", "gz-msgs10", "gz-common5", "sdformat14", "gz-math7", "gz-utils2", "gz-common5-graphics" }
     filter {}
 
     connect_build.executable({
@@ -62,9 +71,9 @@ function sample(projectName, sourceFolder)
     })
 end
 
-sample("HelloWorld", "helloWorld", true)
+-- sample("HelloWorld", "helloWorld", true)
 sample("LiveSession", "liveSession")
-sample("omnicli", "omnicli")
-sample("omniUsdaWatcher", "omniUsdaWatcher")
-sample("omniSimpleSensor", "omniSimpleSensor")
-sample("omniSensorThread", "omniSensorThread")
+-- sample("omnicli", "omnicli")
+-- sample("omniUsdaWatcher", "omniUsdaWatcher")
+-- sample("omniSimpleSensor", "omniSimpleSensor")
+-- sample("omniSensorThread", "omniSensorThread")

@@ -81,6 +81,26 @@ namespace fs = std::experimental::filesystem;
 #include <pxr/usd/usd/modelAPI.h>
 #include <pxr/usd/usdGeom/xform.h>
 
+#include <gz/common/Util.hh>
+#include <gz/common/SystemPaths.hh>
+#include <gz/transport/Node.hh>
+
+#include <gz/utils/cli.hh>
+#include <gz/common/Console.hh>
+#include <gz/common/StringUtils.hh>
+
+
+#include <gz/msgs/joint.pb.h>
+
+#include <map>
+
+#include "GetOp.hpp"
+#include "OmniverseConnect.hpp"
+#include "Scene.hpp"
+#include "SetOp.hpp"
+#include "ThreadSafe.hpp"
+
+
 // Initialize the Omniverse application
 OMNI_APP_GLOBALS("LiveSessionSample", "Omniverse LiveSession Connector");
 
@@ -579,79 +599,134 @@ public:
     std::vector<std::shared_ptr<omni::connect::core::LiveSessionChannel>> mChannels;
 };
 
+constexpr double kTargetFps = 60;
+
+constexpr std::chrono::duration<double> kUpdateRate(1 / kTargetFps);
+
 
 // Main Application
 int main(int argc, char* argv[])
 {
-    bool doLiveEdit = false;
-    std::string existingStageUri;
-    UsdGeomMesh boxMesh;
+    CLI::App app("gz omniverse connector");
 
-    // check for verbose flag
-    bool verbose = false;
-    for (int x = 1; x < argc; x++)
+    std::string destinationPath;
+    app.add_option("-p,--path", destinationPath,
+                    // clang-format off
+                    "Location of the omniverse stage. e.g. \"omniverse://localhost/Users/gz/stage.usd\"")
+        // clang-format on
+        ->required();
+    std::string worldName;
+    gz::omniverse::Simulator simulatorPoses{
+        gz::omniverse::Simulator::gz};
+
+    app.add_option("-w,--world", worldName, "Name of the gz world")
+      ->required();
+
+    std::map<std::string, gz::omniverse::Simulator> map{
+        {"gz", gz::omniverse::Simulator::gz},
+        {"isaacsim", gz::omniverse::Simulator::IsaacSim}};
+    app.add_option("--pose", simulatorPoses, "Which simulator will handle the poses")
+        ->required()
+        ->transform(CLI::CheckedTransformer(map, CLI::ignore_case));
+    app.add_flag_callback("-v,--verbose",
+                    []() { gz::common::Console::SetVerbosity(4); });
+
+    CLI11_PARSE(app, argc, argv);
+
+    std::string ignGazeboResourcePath;
+
+    auto systemPaths = gz::common::systemPaths();
+    gz::common::env("GZ_GAZEBO_RESOURCE_PATH", ignGazeboResourcePath);
+    for (const auto& resourcePath :
+        gz::common::Split(ignGazeboResourcePath, ':'))
     {
-        if (strcmp(argv[x], "-v") == 0 || strcmp(argv[x], "--verbose") == 0)
-        {
-            verbose = true;
-        }
+        systemPaths->AddFilePaths(resourcePath);
     }
 
-    if (!startOmniverse(verbose))
+
+    // bool doLiveEdit = false;
+    // std::string existingStageUri;
+    // UsdGeomMesh boxMesh;
+
+    // // check for verbose flag
+    // bool verbose = false;
+    // for (int x = 1; x < argc; x++)
+    // {
+    //     if (strcmp(argv[x], "-v") == 0 || strcmp(argv[x], "--verbose") == 0)
+    //     {
+    //         verbose = true;
+    //     }
+    // }
+
+    // Connect to omniverse
+    if (!startOmniverse(true))
     {
         exit(1);
     }
 
-    // Process the arguments, if any
-    for (int x = 1; x < argc; x++)
+    // Open the USD model in Omniverse
+    const std::string existingStageUri = [&]()
     {
-        if (strcmp(argv[x], "-h") == 0 || strcmp(argv[x], "--help") == 0)
+        auto result = gz::omniverse::CreateOmniverseModel(destinationPath);
+        if (!result)
         {
-            printCmdLineArgHelp();
-            return 0;
+            gzerr << result.Error() << std::endl;
+            exit(-1);
         }
-        else if (strcmp(argv[x], "-v") == 0 || strcmp(argv[x], "--verbose") == 0)
-        {
-            // this was handled in the pre-process loop
-            continue;
-        }
-        else if (strcmp(argv[x], "-e") == 0 || strcmp(argv[x], "--existing") == 0)
-        {
-            doLiveEdit = true;
-            if (x == argc - 1)
-            {
-                OMNI_LOG_FATAL("Missing an Omniverse URL to the stage to edit.");
-                printCmdLineArgHelp();
-                return -1;
-            }
-            existingStageUri = std::string(argv[++x]);
+        return result.Value();
+    }();
 
-            if (!omni::connect::core::isOmniUri(existingStageUri))
-            {
-                OMNI_LOG_ERROR(
-                    "This is not an Omniverse Nucleus URL: %s\n"
-                    "Correct Omniverse URL format is: omniverse://server_name/Path/To/Example/Folder\n",
-                    existingStageUri.c_str()
-                );
-                return -1;
-            }
-            else if (!omni::connect::core::doesUriExist(existingStageUri))
-            {
-                OMNI_LOG_ERROR("Provided stage URL does not exist - %s", existingStageUri.c_str());
-                return -1;
-            }
-        }
-        else
-        {
-            OMNI_LOG_ERROR("Unrecognized option: %s", argv[x]);
-        }
-    }
 
-    if (existingStageUri.length() == 0)
-    {
-        OMNI_LOG_ERROR("An existing stage must be supplied with the -e argument: ");
-        return -1;
-    }
+    // // Process the arguments, if any
+    // for (int x = 1; x < argc; x++)
+    // {
+    //     if (strcmp(argv[x], "-h") == 0 || strcmp(argv[x], "--help") == 0)
+    //     {
+    //         printCmdLineArgHelp();
+    //         return 0;
+    //     }
+    //     else if (strcmp(argv[x], "-v") == 0 || strcmp(argv[x], "--verbose") == 0)
+    //     {
+    //         // this was handled in the pre-process loop
+    //         continue;
+    //     }
+    //     else if (strcmp(argv[x], "-e") == 0 || strcmp(argv[x], "--existing") == 0)
+    //     {
+    //         doLiveEdit = true;
+    //         if (x == argc - 1)
+    //         {
+    //             OMNI_LOG_FATAL("Missing an Omniverse URL to the stage to edit.");
+    //             printCmdLineArgHelp();
+    //             return -1;
+    //         }
+    //         existingStageUri = std::string(argv[++x]);
+
+    //         if (!omni::connect::core::isOmniUri(existingStageUri))
+    //         {
+    //             OMNI_LOG_ERROR(
+    //                 "This is not an Omniverse Nucleus URL: %s\n"
+    //                 "Correct Omniverse URL format is: omniverse://server_name/Path/To/Example/Folder\n",
+    //                 existingStageUri.c_str()
+    //             );
+    //             return -1;
+    //         }
+    //         else if (!omni::connect::core::doesUriExist(existingStageUri))
+    //         {
+    //             OMNI_LOG_ERROR("Provided stage URL does not exist - %s", existingStageUri.c_str());
+    //             return -1;
+    //         }
+    //     }
+    //     else
+    //     {
+    //         OMNI_LOG_ERROR("Unrecognized option: %s", argv[x]);
+    //     }
+    // }
+
+    // if (existingStageUri.length() == 0)
+    // {
+    //     OMNI_LOG_ERROR("An existing stage must be supplied with the -e argument: ");
+    //     return -1;
+    // }
 
     // Open the stage
     UsdStageRefPtr stage = UsdStage::Open(existingStageUri);
@@ -661,8 +736,9 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    // Find a UsdGeomMesh in the existing stage
-    boxMesh = findGeomMesh(stage);
+
+    // // Find a UsdGeomMesh in the existing stage
+    // boxMesh = findGeomMesh(stage);
 
     // Create a LiveSession instance - we can browse the available sessions and join/create one.
     std::shared_ptr<omni::connect::core::LiveSession> liveSession = omni::connect::core::LiveSession::create(stage);
@@ -673,30 +749,78 @@ int main(int argc, char* argv[])
     }
     findOrCreateSession(liveSession.get());
 
-    // Create a thread that "ticks" every 16ms
-    // The only thing it does is "Update" the Omniverse Message Channels to
-    // flush out any messages in the queue that were received.
-    AppUpdate appUpdate(16);
-    appUpdate.mChannels.push_back(liveSession->getChannel());
-    std::thread channelUpdateThread = std::thread(&AppUpdate::run, &appUpdate);
+    gz::omniverse::PrintConnectedUsername(existingStageUri);
 
-    // Do a live edit session moving the box around, changing a material
-    if (doLiveEdit)
+    std::cout << "initting scene" << std::endl;
+    // auto shared_stage = std::make_shared<gz::omniverse::ThreadSafe<pxr::UsdStageRefPtr>>(std::move(stage));
+    gz::omniverse::Scene scene(worldName, existingStageUri, stage, simulatorPoses);
+    if (!scene.Init())
     {
-        liveEdit(stage, boxMesh, liveSession.get());
+        return -1;
+    };
+
+    auto lastUpdate = std::chrono::steady_clock::now();
+    // don't spam the console, show the fps only once a sec
+    auto nextShowFps =
+        lastUpdate.time_since_epoch() + std::chrono::duration<double>(1);
+
+    scene.Save();
+    omniClientLiveProcess();
+
+    // For testing
+    // pxr::UsdPrim target_prim = stage->GetPrimAtPath(pxr::SdfPath("/shapes/box"));
+    // pxr::GfVec3d new_translate = pxr::GfVec3d(0, 0, 0.0);
+    // End testing
+
+    while (true)
+    {
+        std::this_thread::sleep_for((lastUpdate + kUpdateRate) -
+                                    std::chrono::steady_clock::now());
+        auto now = std::chrono::steady_clock::now();
+        if (now.time_since_epoch() > nextShowFps)
+        {
+        double curFps =
+            1 / std::chrono::duration<double>(now - lastUpdate).count();
+        nextShowFps = now.time_since_epoch() + std::chrono::duration<double>(1);
+        std::cout << "fps: " << curFps << std::endl;
+        }
+        lastUpdate = now;
+
+        // For Testing
+        // new_translate += pxr::GfVec3d(0, 0, 0.01);
+        // if (!target_prim.GetAttribute(pxr::TfToken("xformOp:translate")).Set(new_translate)) {
+        //     OMNI_LOG_ERROR("Failed to modify attribute.");
+        // }
+        // End testing
+
+        omniClientLiveProcess();
     }
-    appUpdate.mStopped = true;
-    channelUpdateThread.join();
-    appUpdate.mChannels.clear(); // dereference the channels so they can be handled by the liveSession pointer reset
 
-    // This will leave and close the session if we didn't merge
-    liveSession.reset();
 
-    // Close the stage as well for good measure
-    stage.Reset();
+    // // Create a thread that "ticks" every 16ms
+    // // The only thing it does is "Update" the Omniverse Message Channels to
+    // // flush out any messages in the queue that were received.
+    // AppUpdate appUpdate(16);
+    // appUpdate.mChannels.push_back(liveSession->getChannel());
+    // std::thread channelUpdateThread = std::thread(&AppUpdate::run, &appUpdate);
 
-    // All done, shut down our connection to Omniverse
-    shutdownOmniverse();
+    // // Do a live edit session moving the box around, changing a material
+    // if (doLiveEdit)
+    // {
+    //     liveEdit(stage, boxMesh, liveSession.get());
+    // }
+    // appUpdate.mStopped = true;
+    // channelUpdateThread.join();
+    // appUpdate.mChannels.clear(); // dereference the channels so they can be handled by the liveSession pointer reset
+
+    // // This will leave and close the session if we didn't merge
+    // liveSession.reset();
+
+    // // Close the stage as well for good measure
+    // stage.Reset();
+
+    // // All done, shut down our connection to Omniverse
+    // shutdownOmniverse();
 
     return 0;
 }
