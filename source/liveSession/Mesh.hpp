@@ -26,9 +26,9 @@ namespace gz
 {
 namespace omniverse
 {
-pxr::UsdGeomMesh UpdateMesh(const gz::msgs::MeshGeom& _meshMsg,
-                            const std::string& _path,
-                            const pxr::UsdStageRefPtr& _stage);
+bool UpdateMesh(const gz::msgs::MeshGeom& _meshMsg,
+                      const std::string& _path,
+                      const pxr::UsdStageRefPtr& _stage);
 }
 }  // namespace gz
 

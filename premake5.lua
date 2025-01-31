@@ -26,8 +26,8 @@ function sample(projectName, sourceFolder)
         "source/common/include",
     }
     externalincludedirs {
-        "/home/jennuine/nvidia_hackathon/gzOmniWs/install/include",
-        "/home/jennuine/nvidia_hackathon/gzOmniWs/install/include/**"
+        "/usr/local/google/home/shameek/omni-workspace/install/include",
+        "/usr/local/google/home/shameek/omni-workspace/install/include/**"
     }
 
     -- setup all paths, links, and carb dependencies to enable omni_connect_core
@@ -61,7 +61,7 @@ function sample(projectName, sourceFolder)
             debugenvs "CARB_APP_PATH=$(ProjectDir)..\\..\\..\\_build\\windows-x86_64\\release"
         filter {}
     filter { "system:linux" }
-        libdirs { "/home/jennuine/nvidia_hackathon/gzOmniWs/install/lib" }
+        libdirs { "/usr/local/google/home/shameek/omni-workspace/install/lib" }
         links { "pthread", "stdc++fs", "protobuf", "protoc", "gz-transport13", "gz-msgs10", "gz-common5", "sdformat14", "gz-math7", "gz-utils2", "gz-common5-graphics" }
     filter {}
 

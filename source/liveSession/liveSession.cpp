@@ -618,9 +618,21 @@ int main(int argc, char* argv[])
     std::string worldName;
     gz::omniverse::Simulator simulatorPoses{
         gz::omniverse::Simulator::gz};
+    bool use_live;
+    std::string scopeName;
+    std::vector<double> scopeTranslation{0, 0, 0};
+    double scopeRotation{0};
 
     app.add_option("-w,--world", worldName, "Name of the gz world")
       ->required();
+
+    app.add_option("-l,--live", use_live, "Whether live usd editing should be used")
+      ->required();
+
+    app.add_option("-n,--scopename", scopeName, "Optional scope to be applied to the models from this world");
+    app.add_option("--scopetranslation", scopeTranslation, "Optional translation to apply to the scope. Ignored if scopename is not specified")
+      ->expected(3);
+    app.add_option("--scoperotation", scopeRotation, "Optional yaw rotation to apply to the scope. Ignored if scopename is not specified");
 
     std::map<std::string, gz::omniverse::Simulator> map{
         {"gz", gz::omniverse::Simulator::gz},
@@ -632,6 +644,11 @@ int main(int argc, char* argv[])
                     []() { gz::common::Console::SetVerbosity(4); });
 
     CLI11_PARSE(app, argc, argv);
+    gz::math::Pose3d scopePose;
+    if (!scopeName.empty()) {
+        scopePose.Set(scopeTranslation[0], scopeTranslation[1],
+            scopeTranslation[2], 0, 0, scopeRotation);
+    }
 
     std::string ignGazeboResourcePath;
 
@@ -753,7 +770,7 @@ int main(int argc, char* argv[])
 
     std::cout << "initting scene" << std::endl;
     // auto shared_stage = std::make_shared<gz::omniverse::ThreadSafe<pxr::UsdStageRefPtr>>(std::move(stage));
-    gz::omniverse::Scene scene(worldName, existingStageUri, stage, simulatorPoses);
+    gz::omniverse::Scene scene(worldName, existingStageUri, stage, simulatorPoses, use_live, scopeName, scopePose);
     if (!scene.Init())
     {
         return -1;
@@ -779,10 +796,10 @@ int main(int argc, char* argv[])
         auto now = std::chrono::steady_clock::now();
         if (now.time_since_epoch() > nextShowFps)
         {
-        double curFps =
-            1 / std::chrono::duration<double>(now - lastUpdate).count();
-        nextShowFps = now.time_since_epoch() + std::chrono::duration<double>(1);
-        std::cout << "fps: " << curFps << std::endl;
+            double curFps =
+                1 / std::chrono::duration<double>(now - lastUpdate).count();
+            nextShowFps = now.time_since_epoch() + std::chrono::duration<double>(1);
+            std::cout << "fps: " << curFps << std::endl;
         }
         lastUpdate = now;
 
@@ -793,6 +810,7 @@ int main(int argc, char* argv[])
         // }
         // End testing
 
+        std::lock_guard<std::mutex> l(scene.Mutex());
         omniClientLiveProcess();
     }
 
